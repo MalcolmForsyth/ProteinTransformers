@@ -1,0 +1,138 @@
+import torch
+from transformers import AutoTokenizer, Trainer, TrainingArguments, AutoModelForSequenceClassification
+from torch.utils.data import Dataset
+import os
+import pandas as pd
+import requests
+from tqdm.auto import tqdm
+import numpy as np
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+import re
+
+model_name = "Rostlab/prot_bert"
+
+class DeepLocDataset(Dataset):
+    """Face Landmarks dataset."""
+
+    def __init__(self, split="train", tokenizer_name='Rostlab/prot_bert_bfd', max_length=1024):
+        """
+        Args:
+            csv_file (string): Path to the csv file with annotations.
+            root_dir (string): Directory with all the images.
+            transform (callable, optional): Optional transform to be applied
+                on a sample.
+        """
+        self.datasetFolderPath = 'dataset/'
+        self.trainFilePath = os.path.join(self.datasetFolderPath, 'deeploc_per_protein_train.csv')
+        self.testFilePath = os.path.join(self.datasetFolderPath, 'deeploc_per_protein_test.csv')
+
+        self.downloadDeeplocDataset()
+
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, do_lower_case=False)
+
+        if split=="train":
+          self.seqs, self.labels = self.load_dataset(self.trainFilePath)
+        else:
+          self.seqs, self.labels = self.load_dataset(self.testFilePath)
+
+        self.max_length = max_length
+
+    def downloadDeeplocDataset(self):
+        deeplocDatasetTrainUrl = 'https://www.dropbox.com/s/vgdqcl4vzqm9as0/deeploc_per_protein_train.csv?dl=1'
+        deeplocDatasetValidUrl = 'https://www.dropbox.com/s/jfzuokrym7nflkp/deeploc_per_protein_test.csv?dl=1'
+
+        if not os.path.exists(self.datasetFolderPath):
+            os.makedirs(self.datasetFolderPath)
+
+        def download_file(url, filename):
+            response = requests.get(url, stream=True)
+            with tqdm.wrapattr(open(filename, "wb"), "write", miniters=1,
+                              total=int(response.headers.get('content-length', 0)),
+                              desc=filename) as fout:
+                for chunk in response.iter_content(chunk_size=4096):
+                    fout.write(chunk)
+
+        if not os.path.exists(self.trainFilePath):
+            download_file(deeplocDatasetTrainUrl, self.trainFilePath)
+
+        if not os.path.exists(self.testFilePath):
+            download_file(deeplocDatasetValidUrl, self.testFilePath)
+
+    def load_dataset(self,path):
+        df = pd.read_csv(path,names=['input','loc','membrane'],skiprows=1)
+        df = df.loc[df['membrane'].isin(["M","S"])]
+        self.labels_dic = {0:'Soluble',
+                           1:'Membrane'}
+
+        df['labels'] = np.where(df['membrane']=='M', 1, 0)
+        
+        seq = list(df['input'])
+        label = list(df['labels'])
+
+        assert len(seq) == len(label)
+        return seq, label
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        seq = " ".join("".join(self.seqs[idx].split()))
+        seq = re.sub(r"[UZOB]", "X", seq)
+
+        seq_ids = self.tokenizer(seq, truncation=True, padding='max_length', max_length=self.max_length)
+
+        sample = {key: torch.tensor(val) for key, val in seq_ids.items()}
+        sample['labels'] = torch.tensor(self.labels[idx])
+
+        return sample
+
+train_dataset = DeepLocDataset(split="train", tokenizer_name=model_name, max_length=1024)
+val_dataset = DeepLocDataset(split="valid", tokenizer_name=model_name, max_length=1024)
+test_dataset = DeepLocDataset(split="test", tokenizer_name=model_name, max_length=1024)
+
+
+
+def compute_metrics(pred):
+    labels = pred.label_ids
+    preds = pred.predictions.argmax(-1)
+    precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='binary')
+    acc = accuracy_score(labels, preds)
+    return {
+        'accuracy': acc,
+        'f1': f1,
+        'precision': precision,
+        'recall': recall
+    }
+
+def model_init():
+  return AutoModelForSequenceClassification.from_pretrained(model_name)
+
+training_args = TrainingArguments(
+    output_dir='../models',          # output directory
+    num_train_epochs=3,              # total number of training epochs
+    per_device_train_batch_size=1,   # batch size per device during training
+    per_device_eval_batch_size=32,   # batch size for evaluation
+    warmup_steps=1000,               # number of warmup steps for learning rate scheduler
+    weight_decay=0.01,               # strength of weight decay
+    logging_dir='../logs',            # directory for storing logs
+    logging_steps=200,               # How often to print logs
+    do_train=True,                   # Perform training
+    do_eval=True,                    # Perform evaluation
+    evaluation_strategy="epoch",     # evalute after eachh epoch
+    gradient_accumulation_steps=64,  # total number of steps before back propagation
+    run_name="ProBert-BFD-MS",       # experiment name
+    seed=3                           # Seed for experiment reproducibility 3x3
+)
+
+trainer = Trainer(
+    model_init=model_init,                # the instantiated 🤗 Transformers model to be trained
+    args=training_args,                   # training arguments, defined above
+    train_dataset=train_dataset,          # training dataset
+    eval_dataset=val_dataset,             # evaluation dataset
+    compute_metrics = compute_metrics,    # evaluation metrics
+)
+
+trainer.train()

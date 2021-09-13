@@ -1,0 +1,37 @@
+import matplotlib.pyplot as plt
+from transformers import RobertaTokenizerFast
+import os
+import numpy as np
+from transformers import RobertaConfig
+from transformers import EarlyStoppingCallback
+from transformers import RobertaForMaskedLM
+from transformers import LineByLineTextDataset
+from transformers import DataCollatorForLanguageModeling
+from transformers import Trainer, TrainingArguments
+
+
+tokenizer = RobertaTokenizerFast.from_pretrained("models/proberta")
+file_path = "UniRef90_Data/uniref90_test.txt"
+with open(file_path, encoding="utf-8") as f:
+    data = f.readlines()  # use this method to avoid delimiter '\u2029' to split a line
+data = [line.strip() for line in data if len(line) > 0 and not line.isspace()]
+
+
+#getting the batch encodings for the dataset and specifying the return length
+batch_encoding = tokenizer(
+    data,
+    add_special_tokens=True,
+    truncation=False,
+    return_length=True
+)
+
+lengths = batch_encoding['length']
+max_length = 350
+num_truncated = 0
+num_sequences = 0
+for length in lengths:
+    num_sequences += 1
+    if length > max_length:
+        num_truncated += 1
+print("number of truncated sequences: " + str(num_truncated))
+print("proportion of truncated sequences: " + str(num_truncated/ num_sequences))
