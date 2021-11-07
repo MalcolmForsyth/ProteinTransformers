@@ -4,6 +4,7 @@ import torch.nn as nn
 from transformers import AutoTokenizer, Trainer, TrainingArguments, BertConfig, BertForSequenceClassification, AutoModelForSequenceClassification, EarlyStoppingCallback
 from transformers.integrations import TensorBoardCallback
 from transformers import RobertaTokenizerFast, RobertaForMaskedLM
+from scipy.stats import spearmanr
 from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
@@ -11,6 +12,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support, mea
 from sklearn.utils import shuffle
 import re
 
+model_name = '../models/proberta3/checkpoint-580000'
 class ProteinDegreeDataset(Dataset):
 
     def __init__(self, split="train", max_length=330):
@@ -30,9 +32,9 @@ class ProteinDegreeDataset(Dataset):
         self.testSplit = .05
         self.validSplit = .05
 
-        self.trainFilePath = './sorted_train.csv'
-        self.testFilePath = './sorted_test.csv'
-        self.validFilePath = './sorted_valid.csv'
+        self.trainFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_train.csv'
+        self.testFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_test.csv'
+        self.validFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_valid.csv'
         if split=="train":
             self.seqs, self.labels = self.load_dataset(self.trainFilePath)
         elif split=='test':
@@ -40,7 +42,7 @@ class ProteinDegreeDataset(Dataset):
         elif split=='valid':
             self.seqs, self.labels = self.load_dataset(self.validFilePath)
 
-        self.tokenizer = RobertaTokenizerFast.from_pretrained("../models/proberta")
+        self.tokenizer = RobertaTokenizerFast.from_pretrained("../models/proberta3")
 
         self.max_length = max_length
 
@@ -118,7 +120,9 @@ def model_init():
     #config = BertConfig(num_labels=1, hidden_size=1024, num_attention_heads=16) 
     #model = BertForSequenceClassification.from_pretrained(model_name, config=config)
     #return model
-    model = RobertaForMaskedLM.from_pretrained('../models/proberta3/checkpoint-320000')
+    #model = RobertaForMaskedLM.from_pretrained('../models/proberta3/checkpoint-580000')
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=1)
+    model.dropout = nn.Dropout(0.1)
     return model
 
 stop_callback = EarlyStoppingCallback(
@@ -126,13 +130,13 @@ stop_callback = EarlyStoppingCallback(
     early_stopping_threshold=0 
 ) 
 training_args = TrainingArguments(
-    output_dir='regression_from_proberta',          # output directory
+    output_dir='../models/regression_from_proberta_step580000',          # output directory
     num_train_epochs=50,              # total number of training epochs
     per_device_train_batch_size=1,   # batch size per device during training
     per_device_eval_batch_size=16,   # batch size for evaluation
     warmup_steps=1000,               # number of warmup steps for learning rate scheduler
     learning_rate=5e-7,
-    logging_dir='logs_from_proberta',            # directory for storing logs
+    logging_dir='../ModelLogs/regression_from_proberta_step580000',            # directory for storing logs
     logging_steps=200,               # How often to print logs
     do_train=True,                   # Perform training
     do_eval=True,                    # Perform evaluation

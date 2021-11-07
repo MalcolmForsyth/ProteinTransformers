@@ -35,7 +35,7 @@ config = RobertaConfig(
     type_vocab_size=1,
 )
 
-tokenizer = RobertaTokenizerFast.from_pretrained("../models/proberta", max_len=max_length)
+tokenizer = RobertaTokenizerFast.from_pretrained("../models/proberta3", max_len=max_length)
 model = RobertaForMaskedLM(config=config)
 
 
@@ -43,20 +43,21 @@ data_collator = DataCollatorForLanguageModeling(
     tokenizer=tokenizer, mlm=True, mlm_probability=0.15
 )
 
+
 training_args = TrainingArguments(
-    output_dir="../models/proberta",
-    overwrite_output_dir=True,
+    output_dir="../models/probertaTest",
+    overwrite_output_dir=False,
     num_train_epochs=200,
     per_device_train_batch_size=60,
     eval_steps=10_000,
     evaluation_strategy="steps",
     metric_for_best_model="loss",
     save_steps=500,
-    save_total_limit=5,
+    save_total_limit=100,
     prediction_loss_only=True,
     load_best_model_at_end=True,
     fp16=True,
-    logging_dir="../ModelLogs/ProBertaLogs"
+    logging_dir="../ModelLogs/ProBertaTest"
 
 )
 
@@ -76,4 +77,5 @@ trainer = Trainer(
 )
 
 trainer.train(resume_from_checkpoint=True)
-trainer.save_model("../models/proberta")
+trainer.save_model("../models/probertaTest")
+

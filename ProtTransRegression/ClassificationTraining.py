@@ -31,9 +31,9 @@ class ProteinDegreeDataset(Dataset):
         self.testSplit = .05
         self.validSplit = .05
 
-        self.trainFilePath = '../Datasets/degree_tokenized_split_three_ways/sorted_train.csv'
-        self.testFilePath = '../Datasets/degree_tokenized_split_three_ways/sorted_test.csv'
-        self.validFilePath = '../Datasets/degree_tokenized_split_three_ways/sorted_valid.csv'
+        self.trainFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_train.csv'
+        self.testFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_test.csv'
+        self.validFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_valid.csv'
         if split=="train":
             self.seqs, self.labels = self.load_dataset(self.trainFilePath)
         elif split=='test':

@@ -1,20 +1,21 @@
 #imports
 import torch
+import torch.nn as nn
 from transformers import AutoTokenizer, Trainer, TrainingArguments, BertConfig, BertForSequenceClassification, AutoModelForSequenceClassification, EarlyStoppingCallback
+from scipy.stats import spearmanr
 from transformers.integrations import TensorBoardCallback
 from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, mean_squared_error
 from sklearn.utils import shuffle
-from scipy.stats import spearmanr
 import re
 
 model_name = "Rostlab/prot_bert_bfd"
 
 class ProteinDegreeDataset(Dataset):
 
-    def __init__(self, split="train", tokenizer_name='Rostlab/prot_bert_bfd', max_length=1024):
+    def __init__(self, split="train", tokenizer_name='Rostlab/prot_albert', max_length=1024):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
@@ -31,44 +32,32 @@ class ProteinDegreeDataset(Dataset):
         self.testSplit = .05
         self.validSplit = .05
 
-        self.datasetFilePath = "degree_tokenized.csv"
+        self.trainFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_train.csv'
+        self.testFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_test.csv'
+        self.validFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_valid.csv'
+        if split=="train":
+            self.seqs, self.labels = self.load_dataset(self.trainFilePath)
+        elif split=='test':
+            self.seqs, self.labels = self.load_dataset(self.testFilePath)
+        elif split=='valid':
+            self.seqs, self.labels = self.load_dataset(self.validFilePath)
 
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, do_lower_case=False)
 
         self.max_length = max_length
 
-        self.seqs = self.load_datasets(self.datasetFilePath)[split][0]
-        self.labels = self.load_datasets(self.datasetFilePath)[split][1]
+    def load_dataset(self,path):
+        df = pd.read_csv(path,names=['Labels', 'Sequence','Degree','Tokenized Sequence'],skiprows=1)
 
-    def load_datasets(self,path):
-        df = pd.read_csv(path,names=['Sequence','Degree','Tokenized Sequence'],skiprows=1)
-
-        df = shuffle(df)
-
+        df['labels'] = df['Labels']
         df['Degree'] = np.log(df['Degree'])
         df['Degree'] = (df['Degree'] - np.mean(df['Degree']) )/ np.std(df['Degree'])
-        df['labels'] = df['Degree']
-        firstchunk = round(self.datasetLength * self.trainSplit)
-
-        trainDf = df.iloc[0 : firstchunk]
-        testDf = df.iloc[firstchunk : firstchunk + round(self.datasetLength * self.testSplit)]
-        validDf = df.iloc[firstchunk + round(self.datasetLength * self.testSplit):]
-        print(firstchunk, firstchunk + round(self.datasetLength * self.testSplit), firstchunk + round(self.datasetLength * self.testSplit))
-        print(df.iloc[0 : firstchunk])
-        print(df.iloc[firstchunk : firstchunk + round(self.datasetLength * self.testSplit)])
-        print(df.iloc[firstchunk + round(self.datasetLength * self.testSplit):])
-        print(firstchunk)
-        print(firstchunk + round(self.datasetLength * self.testSplit))
-
+    
         seq = list(df['Sequence'])
         label = list(df['labels'].astype(float))
 
-        
-
-        datasets = {'train' : [list(trainDf['Sequence']), list(trainDf['labels'].astype(float))], 'test' : [list(testDf['Sequence']), list(testDf['labels'].astype(float))], 'valid' : [list(validDf['Sequence']), list(validDf['labels'].astype(float))]}
-
         assert len(seq) == len(label)
-        return datasets
+        return seq, label
 
     def __len__(self):
         return len(self.labels)
@@ -78,34 +67,26 @@ class ProteinDegreeDataset(Dataset):
             idx = idx.tolist()
 
         seq = " ".join("".join(self.seqs[idx].split()))
-        #this line looks to be specific to the dataset?
         seq = re.sub(r"[UZOB]", "X", seq)
 
         seq_ids = self.tokenizer(seq, truncation=True, padding='max_length', max_length=self.max_length)
 
         sample = {key: torch.tensor(val) for key, val in seq_ids.items()}
-        sample['labels'] = torch.tensor(self.labels[idx])
-
+        sample['labels'] = torch.tensor(self.labels[idx], dtype=torch.float)
         return sample
 
 train_dataset = ProteinDegreeDataset(split="train", tokenizer_name=model_name, max_length=1024)
 val_dataset = ProteinDegreeDataset(split="valid", tokenizer_name=model_name, max_length=1024)
 test_dataset = ProteinDegreeDataset(split="test", tokenizer_name=model_name, max_length=1024)
 
-
-
 def compute_metrics(pred):
     labels = pred.label_ids
     preds = pred.predictions
     meanSquareError = mean_squared_error(labels, preds)
     residuals = []
-    #again, dataset size
     for i in range(len(labels)):
         residuals.append(labels[i] - preds[i])
     df = pd.DataFrame({'freq': residuals})
-    #for when we may want the residual plot
-    #df.groupby('freq', as_index=False).size().plot(kind='bar')
-    #plt.show()
     residualStandardDeviation = np.std(residuals)
     spearmancoeffiecient = spearmanr(labels, preds)
     return {
@@ -118,27 +99,27 @@ def model_init():
     #config = BertConfig(num_labels=1, hidden_size=1024, num_attention_heads=16) 
     #model = BertForSequenceClassification.from_pretrained(model_name, config=config)
     #return model
-    return AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=1)
-
-tensor_callback = TensorBoardCallback()
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=1)
+    model.dropout = nn.Dropout(0.1)
+    return model
 
 stop_callback = EarlyStoppingCallback(
     early_stopping_patience=5,
     early_stopping_threshold=0 
 ) 
 training_args = TrainingArguments(
-    output_dir='models',          # output directory
+    output_dir='../models/regression2',          # output directory
     num_train_epochs=50,              # total number of training epochs
     per_device_train_batch_size=1,   # batch size per device during training
-    per_device_eval_batch_size=24,   # batch size for evaluation
+    per_device_eval_batch_size=16,   # batch size for evaluation
     warmup_steps=1000,               # number of warmup steps for learning rate scheduler
-    weight_decay=0.01,               # strength of weight decay
-    logging_dir='logs',            # directory for storing logs
+    learning_rate=5e-7,
+    logging_dir='../ModelLogs/regression2',            # directory for storing logs
     logging_steps=200,               # How often to print logs
     do_train=True,                   # Perform training
     do_eval=True,                    # Perform evaluation
     evaluation_strategy="epoch",     # evalute after each epoch
-    gradient_accumulation_steps=64,  # total number of steps before back propagation
+    gradient_accumulation_steps=256,  # total number of steps before back propagation
     fp16=True,                       # Use mixed precision
     fp16_opt_level="02",             # mixed precision mode
     run_name="ProBert-DegreeRegression",       # experiment name
@@ -153,7 +134,7 @@ trainer = Trainer(
     train_dataset=train_dataset,          # training dataset
     eval_dataset=val_dataset,             # evaluation dataset
     compute_metrics = compute_metrics,# evaluation metrics
-    callbacks=[stop_callback, tensor_callback]
+    callbacks=[stop_callback]
 )
 
-trainer.train(resume_from_checkpoint=True)
+trainer.train()

@@ -2,8 +2,9 @@
 import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, Trainer, TrainingArguments, BertConfig, BertForSequenceClassification, AutoModelForSequenceClassification, EarlyStoppingCallback
-from scipy.stats import spearmanr
 from transformers.integrations import TensorBoardCallback
+from transformers import RobertaTokenizerFast, RobertaForMaskedLM
+from scipy.stats import spearmanr
 from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
@@ -11,11 +12,10 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support, mea
 from sklearn.utils import shuffle
 import re
 
-model_name = "Rostlab/prot_bert_bfd"
-
+model_name = '../models/proberta3/checkpoint-580000'
 class ProteinDegreeDataset(Dataset):
 
-    def __init__(self, split="train", tokenizer_name='Rostlab/prot_albert', max_length=1024):
+    def __init__(self, split="train", max_length=330):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
@@ -32,9 +32,9 @@ class ProteinDegreeDataset(Dataset):
         self.testSplit = .05
         self.validSplit = .05
 
-        self.trainFilePath = './sorted_train.csv'
-        self.testFilePath = './sorted_test.csv'
-        self.validFilePath = './sorted_valid.csv'
+        self.trainFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_train.csv'
+        self.testFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_test.csv'
+        self.validFilePath = '../Datasets/Degree_tokenized_split_three_ways/sorted_valid.csv'
         if split=="train":
             self.seqs, self.labels = self.load_dataset(self.trainFilePath)
         elif split=='test':
@@ -42,7 +42,7 @@ class ProteinDegreeDataset(Dataset):
         elif split=='valid':
             self.seqs, self.labels = self.load_dataset(self.validFilePath)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, do_lower_case=False)
+        self.tokenizer = RobertaTokenizerFast.from_pretrained("../models/proberta3")
 
         self.max_length = max_length
 
@@ -79,9 +79,9 @@ class ProteinDegreeDataset(Dataset):
         '''
         return sample
 
-train_dataset = ProteinDegreeDataset(split="train", tokenizer_name=model_name, max_length=1024)
-val_dataset = ProteinDegreeDataset(split="valid", tokenizer_name=model_name, max_length=1024)
-test_dataset = ProteinDegreeDataset(split="test", tokenizer_name=model_name, max_length=1024)
+train_dataset = ProteinDegreeDataset(split="train", max_length=330)
+val_dataset = ProteinDegreeDataset(split="valid", max_length=330)
+test_dataset = ProteinDegreeDataset(split="test", max_length=330)
 '''
 print("train")
 print(train_dataset)
@@ -120,8 +120,9 @@ def model_init():
     #config = BertConfig(num_labels=1, hidden_size=1024, num_attention_heads=16) 
     #model = BertForSequenceClassification.from_pretrained(model_name, config=config)
     #return model
+    #model = RobertaForMaskedLM.from_pretrained('../models/proberta3/checkpoint-580000')
     model = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=1)
-    model.dropout = nn.Dropout(0.1)
+    model.dropout = nn.Dropout(0.5)
     return model
 
 stop_callback = EarlyStoppingCallback(
@@ -129,13 +130,13 @@ stop_callback = EarlyStoppingCallback(
     early_stopping_threshold=0 
 ) 
 training_args = TrainingArguments(
-    output_dir='regression_increased_batch_size',          # output directory
+    output_dir='../models/regression_from_proberta2_step580000',          # output directory
     num_train_epochs=50,              # total number of training epochs
     per_device_train_batch_size=1,   # batch size per device during training
     per_device_eval_batch_size=16,   # batch size for evaluation
     warmup_steps=1000,               # number of warmup steps for learning rate scheduler
     learning_rate=5e-7,
-    logging_dir='logs_increased_batch_size',            # directory for storing logs
+    logging_dir='../ModelLogs/regression_from_proberta2_step580000',            # directory for storing logs
     logging_steps=200,               # How often to print logs
     do_train=True,                   # Perform training
     do_eval=True,                    # Perform evaluation

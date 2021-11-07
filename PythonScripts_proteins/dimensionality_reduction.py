@@ -15,21 +15,23 @@ from transformers import BertTokenizer, BertForMaskedLM
 
 #set up model
 max_length = 330
-#tokenizer = RobertaTokenizerFast.from_pretrained("../models/proberta", max_len=max_length, truncation=True)
-#model = RobertaForMaskedLM.from_pretrained("../models/proberta3/checkpoint-380000").to('cuda')
-tokenizer = BertTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False)
-model = BertForMaskedLM.from_pretrained("Rostlab/prot_bert").to('cuda')
+tokenizer = RobertaTokenizerFast.from_pretrained("../models/proberta", max_len=max_length, truncation=True)
+model = RobertaForMaskedLM.from_pretrained("../models/proberta/checkpoint-560000").to('cuda')
+#tokenizer = BertTokenizer.from_pretrained("Rostlab/prot_bert", do_lower_case=False)
+#model = BertForMaskedLM.from_pretrained("Rostlab/prot_bert").to('cuda')
 #set up dataframe, using model outputs
-sample_size = 600
-dataset = pd.read_csv("../Finetune_fam_data_500K.csv")
+sample_size = 10000
+dataset = pd.read_csv("../Datasets/Finetune_fam_data_500K.csv")
 seq_list = list(dataset['Tokenized Sequence'])
 for i in range(len(seq_list)):
     element = seq_list[i]
     #remove the space in join for our pretrained model, check the space error in the finetuning scripts
-    seq_list[i] = " ".join(element[1:].split(" "))
+    #add the space in join for rostlab
+    seq_list[i] = "".join(element[1:].split(" "))
+    seq_list[i] = seq_list[i][:329]
 labels = list(dataset['Protein families'][:sample_size])
 max_sequence_len = 768
-feat_cols = ['cls weight '+str(i) for i in range(1024)]
+feat_cols = ['cls weight '+str(i) for i in range(768)]
 df = pd.DataFrame(columns=feat_cols)
 for i in range(sample_size):
     print(i)
@@ -40,7 +42,7 @@ print(df)
 df['labels'] = labels
 
 #principal component analysis
-pca = PCA(n_components=3)
+pca = PCA(n_components=50)
 pca_result = pca.fit_transform(df[feat_cols].values)
 print('Explained variation per principal component: {}'.format(pca.explained_variance_ratio_))
 print(pca_result)
@@ -60,6 +62,18 @@ sns.scatterplot(
 #save picture
 plt.savefig('pca.png')
 
+tsne = TSNE(n_components=2)
+
+tsne_result = tsne.fit_transform(pca_result)
+plt.figure(figsize=(16,10))
+sns.scatterplot(
+    x=tsne_result[:,0], y = tsne_result[:,1],
+    hue=labels,
+    legend='full',
+    alpha=0.6
+)
+
+plt.savefig('tsne.png')
 
 '''
 #find the shape
